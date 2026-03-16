@@ -1,0 +1,5 @@
+TELUS|telus
+BC Hydro|bc hydro|bchydro|bc-hydro
+RBC|rbc|royal bank
+TD Bank|td|td bank|toronto-dominion
+BMO|bmo|bank of montreal

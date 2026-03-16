@@ -1,0 +1,22 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+.zshrc
+node_modules/
+doctor-gavrielov/
+geospatial-work/
+
+# Local secrets
+*.env
+files and folders organizer - .env
+
+# Local outputs and caches
+cache/
+out/
+passes/
+
+# Renamed leftovers kept out of the organizer repo
+brand_overrides - could_not_classify.csv
+files and folders organizer - requirements - could_not_classify.txt
+document - List of Canadian company keywords.txt
