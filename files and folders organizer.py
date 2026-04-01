@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 import hashlib
 import csv
 
@@ -28,6 +28,22 @@ except ImportError:
     OpenAI = openai.OpenAI
 
 MISSING_PYMUPDF_WARNED = False
+StatusReporter = Optional[Callable[[str], None]]
+
+
+def emit_status(reporter: StatusReporter, message: str) -> None:
+    if reporter:
+        reporter(message)
+
+
+def format_bytes(num_bytes: int) -> str:
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
 
 
 def check_dependencies() -> None:
@@ -43,7 +59,7 @@ def check_dependencies() -> None:
         )
 
 
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".eps"}
 DOCUMENT_EXTS = {
     ".pdf",
     ".docx",
@@ -51,15 +67,18 @@ DOCUMENT_EXTS = {
     ".rtf",
     ".csv",
     ".pptx",
-    ".scad",
     ".ttf",
     ".py",
     ".html",
     ".eml",
     ".xls",
     ".psd",
-    ".eps",
     ".dn",
+}
+THREED_EXTS = {
+    ".scad",
+    ".stl",
+    ".gcode",
 }
 MEDIA_EXTS = {
     ".mp4",
@@ -68,17 +87,14 @@ MEDIA_EXTS = {
     ".wav",
     ".m4a",
     ".aup3",
-    ".stl",
     ".svg",
     ".ico",
     ".icl",
     ".ics",
-    ".gcode",
-    ".eps",
 }
 APPLICATION_EXTS = {".app", ".dmg", ".pkg", ".exe", ".zip", ".webp", ".xml", ".iso"}
 
-SUPPORTED_EXTS = IMAGE_EXTS | DOCUMENT_EXTS | MEDIA_EXTS | APPLICATION_EXTS
+SUPPORTED_EXTS = IMAGE_EXTS | DOCUMENT_EXTS | THREED_EXTS | MEDIA_EXTS | APPLICATION_EXTS
 
 AUTOGEN_PATTERNS = [
     r"^img_\d+$",
@@ -102,6 +118,7 @@ CATEGORY_TEMPLATES = {
     "photo": "photo of reality - {desc}",
     "schematic": "schematic of {desc}",
     "cartoon": "cartoon of {desc}",
+    "3d": "3d model file {desc}",
     "media": "media video file {desc}",
     "application": "application file {desc}",
 }
@@ -112,6 +129,7 @@ CATEGORY_PREFIXES = {
     "photo": "photo of reality - ",
     "schematic": "schematic of ",
     "cartoon": "cartoon of ",
+    "3d": "3d model file ",
     "media": "media video file ",
     "application": "application file ",
 }
@@ -122,6 +140,7 @@ DEFAULT_DESTS = {
     "photo": Path.home() / "Pictures" / "Photos",
     "schematic": Path.home() / "Pictures" / "Schematics",
     "cartoon": Path.home() / "Pictures" / "Cartoons",
+    "3d": Path.home() / "Documents" / "3D",
     "media": Path.home() / "Movies",
     "application": Path.home() / "Applications",
 }
@@ -266,10 +285,12 @@ def year_month_from_date(date_str: str) -> tuple[str, str]:
 def progress_bar(scanned: int, total: int, width: int = 50) -> str:
     if total <= 0:
         return "[" + ("?" * width) + "]"
-    idx = int((scanned / total) * (width - 1))
-    idx = max(0, min(width - 1, idx))
     bar = ["-"] * width
-    bar[idx] = "+"
+    pct_text = f"{(scanned / total) * 100:0.1f}%"
+    idx = int((scanned / total) * max(1, width - len(pct_text)))
+    idx = max(0, min(width - len(pct_text), idx))
+    for i, ch in enumerate(pct_text):
+        bar[idx + i] = ch
     return "[" + "".join(bar) + "]"
 
 
@@ -283,7 +304,57 @@ def format_eta(seconds: float) -> str:
     return f"{m:02d}m{s:02d}s"
 
 
+def format_clock(timestamp: Optional[float] = None) -> str:
+    if timestamp is None:
+        timestamp = time.time()
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+
+
+def print_phase_progress(
+    label: str,
+    current: int,
+    total: int,
+    started: float,
+    current_label: str = "scanned",
+    **metrics: object,
+) -> None:
+    elapsed = max(1.0, time.time() - started)
+    rate = current / elapsed if current > 0 else 0.0
+    remaining = max(0, total - current)
+    eta = format_eta(remaining / rate) if rate > 0 else "??m??s"
+    bar = progress_bar(current, total)
+    fields = [
+        f"{current_label}={current}",
+        *(f"{key}={value}" for key, value in metrics.items()),
+        f"remaining={remaining}",
+        f"rate={rate:.2f} files/sec",
+        f"eta={eta}",
+    ]
+    print(
+        f"\n\n{label} {bar} clock={format_clock()} elapsed={format_eta(elapsed)} "
+        + " ".join(fields)
+        + "\n\n"
+    )
+
+
 def image_to_data_url(path: Path) -> Optional[str]:
+    if path.suffix.lower() == ".eps":
+        tmp_dir = Path(tempfile.mkdtemp(prefix="rename_eps_"))
+        png_path = tmp_dir / "preview.png"
+        try:
+            subprocess.run(
+                ["sips", "-s", "format", "png", str(path), "--out", str(png_path)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if png_path.exists():
+                return bytes_to_data_url(png_path.read_bytes(), "image/png")
+        except Exception:
+            return None
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     mime, _ = mimetypes.guess_type(path.name)
     if not mime:
         if path.suffix.lower() in {".jpg", ".jpeg"}:
@@ -294,6 +365,8 @@ def image_to_data_url(path: Path) -> Optional[str]:
             mime = "image/webp"
         elif path.suffix.lower() == ".gif":
             mime = "image/gif"
+        elif path.suffix.lower() == ".avif":
+            mime = "image/avif"
         else:
             return None
 
@@ -338,7 +411,14 @@ def load_brand_overrides() -> dict[str, str]:
     return overrides
 
 
-def classify_image(client: OpenAI, model: str, detail: str, data_url: str) -> dict:
+def classify_image(
+    client: OpenAI,
+    model: str,
+    detail: str,
+    data_url: str,
+    reporter: StatusReporter = None,
+    label: str = "image",
+) -> dict:
     if not data_url:
         return {"category": "could_not_classify", "description": ""}
 
@@ -375,6 +455,8 @@ def classify_image(client: OpenAI, model: str, detail: str, data_url: str) -> di
         "If you choose could_not_classify, set description to an empty string."
     )
 
+    emit_status(reporter, f"OpenAI image classification started for {label}")
+    started = time.time()
     try:
         response = client.responses.create(
             model=model,
@@ -399,8 +481,10 @@ def classify_image(client: OpenAI, model: str, detail: str, data_url: str) -> di
     except Exception as exc:
         # If the file isn't a valid image (corrupt or mislabeled), skip gracefully.
         if "invalid image" in str(exc).lower() or "invalid_request_error" in str(exc).lower():
+            emit_status(reporter, f"OpenAI image classification skipped invalid image for {label}")
             return {"category": "could_not_classify", "description": ""}
         raise
+    emit_status(reporter, f"OpenAI image classification finished for {label} in {time.time() - started:.1f}s")
 
     raw = response.output_text
     try:
@@ -409,7 +493,13 @@ def classify_image(client: OpenAI, model: str, detail: str, data_url: str) -> di
         return {"category": "could_not_classify", "description": ""}
 
 
-def classify_text_document(client: OpenAI, model: str, text: str) -> dict:
+def classify_text_document(
+    client: OpenAI,
+    model: str,
+    text: str,
+    reporter: StatusReporter = None,
+    label: str = "document",
+) -> dict:
     schema = {
         "type": "object",
         "properties": {
@@ -427,6 +517,8 @@ def classify_text_document(client: OpenAI, model: str, text: str) -> dict:
         "If could_not_classify, set description to an empty string."
     )
 
+    emit_status(reporter, f"OpenAI text classification started for {label}")
+    started = time.time()
     response = client.responses.create(
         model=model,
         input=[
@@ -448,6 +540,7 @@ def classify_text_document(client: OpenAI, model: str, text: str) -> dict:
         },
     )
 
+    emit_status(reporter, f"OpenAI text classification finished for {label} in {time.time() - started:.1f}s")
     raw = response.output_text
     try:
         return json.loads(raw)
@@ -455,7 +548,15 @@ def classify_text_document(client: OpenAI, model: str, text: str) -> dict:
         return {"category": "could_not_classify", "description": ""}
 
 
-def classify_pdf_document(client: OpenAI, model: str, detail: str, data_url: Optional[str], text: str) -> dict:
+def classify_pdf_document(
+    client: OpenAI,
+    model: str,
+    detail: str,
+    data_url: Optional[str],
+    text: str,
+    reporter: StatusReporter = None,
+    label: str = "pdf",
+) -> dict:
     schema = {
         "type": "object",
         "properties": {
@@ -485,6 +586,8 @@ def classify_pdf_document(client: OpenAI, model: str, detail: str, data_url: Opt
     if data_url:
         content.append({"type": "input_image", "image_url": data_url, "detail": detail})
 
+    emit_status(reporter, f"OpenAI PDF classification started for {label}")
+    started = time.time()
     response = client.responses.create(
         model=model,
         input=[{"role": "user", "content": content}],
@@ -498,6 +601,7 @@ def classify_pdf_document(client: OpenAI, model: str, detail: str, data_url: Opt
         },
     )
 
+    emit_status(reporter, f"OpenAI PDF classification finished for {label} in {time.time() - started:.1f}s")
     raw = response.output_text
     try:
         return json.loads(raw)
@@ -586,6 +690,17 @@ def route_destination(path: Path) -> Optional[Path]:
     lower_name = name.lower()
     ext = path.suffix.lower()
 
+    if ext in THREED_EXTS:
+        if ext == ".gcode":
+            if lower_name.startswith("um2"):
+                return Path.home() / "Documents" / "3D" / "Ultimaker2"
+            if lower_name.startswith("ce3e3v2"):
+                return Path.home() / "Documents" / "3D" / "Creality Ender 3v2"
+        return Path.home() / "Documents" / "3D"
+
+    if ext == ".svg":
+        return Path.home() / "Pictures"
+
     if ext == ".gcode":
         if lower_name.startswith("um2"):
             return Path.home() / "Documents" / "3D" / "Ultimaker2"
@@ -643,8 +758,10 @@ def route_destination(path: Path) -> Optional[Path]:
 
     category = parse_category_from_stem(path.stem)
     if not category:
-        if ext in {".png", ".jpg", ".jpeg"}:
+        if ext in IMAGE_EXTS:
             return Path.home() / "Pictures"
+        if ext in APPLICATION_EXTS:
+            return Path.home() / "Applications"
         return None
 
     name = lower_name
@@ -712,33 +829,61 @@ def file_hash(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
-def dedupe_files(root: Path, recursive: bool, skip_permission_errors: bool, apply: bool, skip_dir: Path) -> None:
+def dedupe_files(
+    root: Path,
+    recursive: bool,
+    skip_permission_errors: bool,
+    apply: bool,
+    skip_dir: Path,
+    total: int,
+    started: float,
+) -> tuple[int, int, int, int]:
     seen: dict[str, Path] = {}
+    scanned = 0
+    duplicates = 0
+    deleted = 0
+    permission_skips = 0
     for path in iter_files(root, recursive):
         if is_within(path, skip_dir):
             continue
+        scanned += 1
         try:
             digest = file_hash(path)
         except PermissionError:
             if skip_permission_errors:
                 print(f"SKIP (permission): {path}")
+                permission_skips += 1
                 continue
             raise
 
         if digest in seen:
+            duplicates += 1
             if apply:
                 try:
                     path.unlink()
                     print(f"DELETED DUPLICATE: {path} (kept {seen[digest]})")
+                    deleted += 1
                 except PermissionError:
                     if skip_permission_errors:
                         print(f"SKIP (permission): {path}")
+                        permission_skips += 1
                     else:
                         raise
             else:
                 print(f"DRY-RUN DUPLICATE: {path} (would delete; kept {seen[digest]})")
         else:
             seen[digest] = path
+        if (scanned % 12) == 0:
+            print_phase_progress(
+                "Dedupe progress",
+                scanned,
+                total,
+                started,
+                duplicates=duplicates,
+                deleted=deleted,
+                permission_skips=permission_skips,
+            )
+    return scanned, duplicates, deleted, permission_skips
 
 
 def build_new_name(stem: str, category: str, description: str) -> str:
@@ -756,7 +901,7 @@ def build_new_name(stem: str, category: str, description: str) -> str:
     return template.format(desc=desc) + date_suffix
 
 
-def iter_files(root: Path, recursive: bool):
+def iter_supported_paths(root: Path, recursive: bool, include_application_dirs: bool = False):
     if recursive:
         skip_dir_names = {".git", ".venv", "node_modules"}
         skip_suffixes = {".app", ".bundle", ".framework", ".pkg"}
@@ -765,7 +910,12 @@ def iter_files(root: Path, recursive: bool):
             pruned = []
             for d in dirnames:
                 lower = d.lower()
-                if lower in skip_dir_names or any(lower.endswith(s) for s in skip_suffixes):
+                path = Path(dirpath) / d
+                if lower in skip_dir_names:
+                    continue
+                if any(lower.endswith(s) for s in skip_suffixes):
+                    if include_application_dirs and path.suffix.lower() in APPLICATION_EXTS:
+                        yield path
                     continue
                 pruned.append(d)
             dirnames[:] = pruned
@@ -778,6 +928,12 @@ def iter_files(root: Path, recursive: bool):
         for path in root.iterdir():
             if path.is_file() and path.suffix.lower() in SUPPORTED_EXTS:
                 yield path
+            elif include_application_dirs and path.is_dir() and path.suffix.lower() in APPLICATION_EXTS:
+                yield path
+
+
+def iter_files(root: Path, recursive: bool):
+    yield from iter_supported_paths(root, recursive, include_application_dirs=False)
 
 
 def get_file_kind(path: Path) -> str:
@@ -786,6 +942,8 @@ def get_file_kind(path: Path) -> str:
         return "image"
     if ext in DOCUMENT_EXTS:
         return "document"
+    if ext in THREED_EXTS:
+        return "3d"
     if ext in MEDIA_EXTS:
         return "media"
     if ext in APPLICATION_EXTS:
@@ -840,12 +998,27 @@ def main():
     parser.add_argument(
         "--dedupe-apply",
         action="store_true",
-        help="Actually delete duplicates when used with --dedupe",
+        help="Actually delete duplicates (implies --dedupe)",
+    )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Print detailed status updates for the current file and API work",
     )
 
     args = parser.parse_args()
+    if args.dedupe_apply:
+        args.dedupe = True
+    reporter: StatusReporter = None
+    if args.trace:
+        def _report(message: str) -> None:
+            print(f"STATUS: {message}", flush=True)
+
+        reporter = _report
     root = Path.cwd()
     script_dir = Path(__file__).resolve().parent
+    run_started = time.time()
+    print(f"Run started clock={format_clock(run_started)} root={root}")
     if is_within(script_dir, root):
         print(f"Skipping script project directory: {script_dir}")
 
@@ -860,6 +1033,10 @@ def main():
         scanned = 0
         skipped = 0
         total = sum(1 for _ in iter_files(root, args.recursive))
+        emit_status(
+            reporter,
+            f"Starting rename scan in {root} with {total} supported files at {format_clock()}",
+        )
         started = time.time()
         for path in iter_files(root, args.recursive):
             if is_within(path, script_dir):
@@ -867,38 +1044,52 @@ def main():
                 continue
             scanned += 1
             stem = path.stem
+            kind = get_file_kind(path)
+            try:
+                size_text = format_bytes(path.stat().st_size)
+            except OSError:
+                size_text = "unknown size"
+            emit_status(reporter, f"[{scanned}/{total}] inspecting {path.name} ({kind}, {size_text})")
             if not args.no_prefix_existing:
                 if parse_category_from_stem(stem):
+                    emit_status(reporter, f"Skipping {path.name}: already has a FaFO category prefix")
                     skipped += 1
                     continue
                 if "could_not_classify" in stem.lower():
+                    emit_status(reporter, f"Skipping {path.name}: already marked could_not_classify")
                     skipped += 1
                     continue
             elif not args.mnemonically_boosted:
                 if is_human_readable(stem):
+                    emit_status(reporter, f"Skipping {path.name}: filename already looks human-readable")
                     skipped += 1
                     continue
                 if not is_autogenerated(stem):
+                    emit_status(reporter, f"Skipping {path.name}: filename is not autogenerated")
                     skipped += 1
                     continue
             else:
                 if is_human_readable(stem) and not is_mnemonically_poor(stem):
+                    emit_status(reporter, f"Skipping {path.name}: filename is already mnemonic enough")
                     skipped += 1
                     continue
 
-            kind = get_file_kind(path)
             result = {"category": "could_not_classify", "description": ""}
 
             if kind == "image":
+                emit_status(reporter, f"Preparing image payload for {path.name}")
                 data_url = image_to_data_url(path)
                 if data_url:
-                    result = classify_image(client, args.model, args.detail, data_url)
+                    result = classify_image(client, args.model, args.detail, data_url, reporter, path.name)
             elif kind == "document":
                 if path.suffix.lower() == ".pdf":
+                    emit_status(reporter, f"Preparing PDF preview and text extraction for {path.name}")
                     pdf_image = extract_pdf_first_page_image(path)
                     data_url = bytes_to_data_url(pdf_image[0], pdf_image[1]) if pdf_image else None
                     text = read_text_file(path)
-                    pdf_info = classify_pdf_document(client, args.model, args.detail, data_url, text)
+                    pdf_info = classify_pdf_document(
+                        client, args.model, args.detail, data_url, text, reporter, path.name
+                    )
 
                     doc_type = pdf_info.get("doc_type", "could_not_classify")
                     brand = pdf_info.get("brand", "").strip()
@@ -924,20 +1115,29 @@ def main():
                     else:
                         result = {"category": "document", "description": path.stem.replace("_", " ") + date_suffix}
                 else:
+                    emit_status(reporter, f"Extracting text from {path.name}")
                     text = read_text_file(path)
                     if text:
-                        result = classify_text_document(client, args.model, text)
+                        result = classify_text_document(client, args.model, text, reporter, path.name)
                     else:
                         result = {"category": "document", "description": path.stem.replace("_", " ")}
                 result["category"] = "document"
             elif kind == "media":
                 frame = None
                 if path.suffix.lower() in {".mp4", ".mov"}:
+                    emit_status(reporter, f"Extracting preview frame from {path.name}")
                     frame = extract_video_frame(path)
                 if frame and frame.exists():
                     data_url = image_to_data_url(frame)
                     if data_url:
-                        result = classify_image(client, args.model, args.detail, data_url)
+                        result = classify_image(
+                            client,
+                            args.model,
+                            args.detail,
+                            data_url,
+                            reporter,
+                            f"video frame for {path.name}",
+                        )
                     try:
                         shutil.rmtree(frame.parent)
                     except Exception:
@@ -945,18 +1145,23 @@ def main():
                 else:
                     mime, _ = mimetypes.guess_type(path.name)
                     if mime and mime.startswith("image/"):
+                        emit_status(reporter, f"Preparing media-image payload for {path.name}")
                         data_url = image_to_data_url(path)
                         if data_url:
-                            result = classify_image(client, args.model, args.detail, data_url)
+                            result = classify_image(client, args.model, args.detail, data_url, reporter, path.name)
                 if result.get("category") == "could_not_classify":
                     result = {"category": "media", "description": path.stem.replace("_", " ")}
                 result["category"] = "media"
+            elif kind == "3d":
+                emit_status(reporter, f"Treating {path.name} as a 3D file")
+                result = {"category": "3d", "description": path.stem.replace("_", " ")}
             elif kind == "application":
                 result = {"category": "application", "description": path.stem.replace("_", " ")}
                 result["category"] = "application"
 
             category = result.get("category", "could_not_classify")
             description = result.get("description", "")
+            emit_status(reporter, f"Classification result for {path.name}: category={category}, description={description!r}")
 
             new_stem = build_new_name(stem, category, description)
             new_stem = sanitize_filename(new_stem)
@@ -965,6 +1170,7 @@ def main():
 
             new_path = path.with_name(f"{new_stem}{path.suffix}")
             new_path = ensure_unique_path(new_path)
+            emit_status(reporter, f"Proposed rename for {path.name}: {new_path.name}")
 
             if args.dry_run:
                 print(f"DRY-RUN: {path.name} -> {new_path.name}")
@@ -982,44 +1188,81 @@ def main():
             if args.max and count >= args.max:
                 break
             if (scanned % 12) == 0:
-                elapsed = max(1.0, time.time() - started)
-                rate = scanned / elapsed
-                remaining = max(0, total - scanned)
-                bar = progress_bar(scanned, total)
-                eta = format_eta(remaining / rate) if rate > 0 else "??m??s"
-                print(
-                    f"\n\nProgress {bar} scanned={scanned} renamed={count} skipped={skipped} "
-                    f"remaining={remaining} rate={rate:.2f} files/sec eta={eta}\n\n"
+                print_phase_progress(
+                    "Rename progress",
+                    scanned,
+                    total,
+                    started,
+                    renamed=count,
+                    skipped=skipped,
                 )
-        elapsed = max(1.0, time.time() - started)
-        rate = scanned / elapsed
-        remaining = max(0, total - scanned)
-        bar = progress_bar(scanned, total)
-        eta = format_eta(remaining / rate) if rate > 0 else "??m??s"
-        print(
-            f"\n\nRename summary {bar} scanned={scanned} renamed={count} skipped={skipped} "
-            f"remaining={remaining} rate={rate:.2f} files/sec eta={eta}\n\n"
+        print_phase_progress(
+            "Rename summary",
+            scanned,
+            total,
+            started,
+            renamed=count,
+            skipped=skipped,
         )
 
     if args.organize or args.organize_only:
-        for path in iter_files(root, args.recursive):
+        emit_status(reporter, f"Starting organize pass in {root}")
+        organize_total = sum(1 for _ in iter_supported_paths(root, args.recursive, include_application_dirs=True))
+        organize_started = time.time()
+        organize_scanned = 0
+        moved = 0
+        for path in iter_supported_paths(root, args.recursive, include_application_dirs=True):
             if is_within(path, script_dir):
                 continue
+            organize_scanned += 1
             dest = route_destination(path)
             if dest:
+                emit_status(reporter, f"Moving {path.name} to {dest}")
                 move_to_destination(path, dest, skip_permission_errors=not args.no_skip_permission_errors)
+                moved += 1
+            if (organize_scanned % 12) == 0:
+                print_phase_progress(
+                    "Organize progress",
+                    organize_scanned,
+                    organize_total,
+                    organize_started,
+                    moved=moved,
+                )
+        print_phase_progress(
+            "Organize summary",
+            organize_scanned,
+            organize_total,
+            organize_started,
+            moved=moved,
+        )
 
     if args.prune_empty_dirs:
         if not is_within(script_dir, root):
+            emit_status(reporter, f"Pruning empty directories under {root}")
             prune_empty_directories(root, skip_permission_errors=not args.no_skip_permission_errors)
 
     if args.dedupe:
-        dedupe_files(
+        emit_status(reporter, f"Starting dedupe scan in {root}")
+        dedupe_total = sum(1 for _ in iter_files(root, args.recursive) if not is_within(_, script_dir))
+        dedupe_started = time.time()
+        scanned, duplicates, deleted, permission_skips = dedupe_files(
             root,
             args.recursive,
             skip_permission_errors=not args.no_skip_permission_errors,
             apply=args.dedupe_apply,
             skip_dir=script_dir,
+            total=dedupe_total,
+            started=dedupe_started,
+        )
+        print_phase_progress(
+            "Dedupe summary",
+            scanned,
+            dedupe_total,
+            dedupe_started,
+            mode="applied" if args.dedupe_apply else "dry-run",
+            duplicates=duplicates,
+            deleted=deleted,
+            permission_skips=permission_skips,
         )
 
 
