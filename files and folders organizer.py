@@ -72,6 +72,8 @@ DOCUMENT_EXTS = {
     ".html",
     ".eml",
     ".xls",
+    ".xlsx",
+    ".mol",
     ".psd",
     ".dn",
 }
@@ -756,10 +758,14 @@ def route_destination(path: Path) -> Optional[Path]:
         if "image-like" in lower_name or "image like" in lower_name:
             return Path.home() / "Pictures"
 
+        return Path.home() / "Documents"
+
     category = parse_category_from_stem(path.stem)
     if not category:
         if ext in IMAGE_EXTS:
             return Path.home() / "Pictures"
+        if ext in DOCUMENT_EXTS:
+            return Path.home() / "Documents"
         if ext in APPLICATION_EXTS:
             return Path.home() / "Applications"
         return None
