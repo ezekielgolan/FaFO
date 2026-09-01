@@ -1,0 +1,26 @@
+services:
+  web:
+    image: python:3.12-slim
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - workspace:/data/workspace
+    environment:
+      - WORKSPACE_DIR=/data/workspace
+      - HOME=/data/workspace
+      - PYTHONUNBUFFERED=1
+      - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX}
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    command: >
+      bash -c "
+      apt-get update && apt-get install -y --no-install-recommends ffmpeg &&
+      pip install --no-cache-dir -r web_requirements.txt &&
+      python web_app.py
+      "
+
+volumes:
+  workspace:

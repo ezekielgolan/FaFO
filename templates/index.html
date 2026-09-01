@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Files &amp; Folders Organizer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <div class="header-icon">🗂️</div>
+      <div>
+        <h1>Files &amp; Folders Organizer</h1>
+        <p class="subtitle">AI-powered file renaming &amp; organization</p>
+      </div>
+    </div>
+    <div id="keyBadge" class="key-badge loading">Checking API key…</div>
+  </header>
+
+  <main class="container">
+    <!-- Upload & actions -->
+    <section class="card">
+      <div class="card-title">Workspace</div>
+      <div class="upload-zone" id="dropZone">
+        <div class="upload-icon">📁</div>
+        <p>Drag &amp; drop files here, or <span class="upload-link">browse</span></p>
+        <input type="file" id="fileInput" multiple hidden>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-secondary" id="sampleBtn">Load Sample Files</button>
+        <button class="btn btn-danger" id="clearBtn">Clear Workspace</button>
+      </div>
+    </section>
+
+    <!-- File list -->
+    <section class="card">
+      <div class="card-title">Files <span class="file-count" id="fileCount">(0)</span></div>
+      <div class="file-list" id="fileList">
+        <div class="empty-state">No files in workspace. Upload some or load samples.</div>
+      </div>
+    </section>
+
+    <!-- Options -->
+    <section class="card">
+      <div class="card-title">Options</div>
+      <div class="options-grid">
+        <label class="option">
+          <input type="checkbox" id="dryRun" checked>
+          <span>Dry Run <small>(preview only)</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="recursive">
+          <span>Recursive <small>(descend subdirs)</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="organizeOnly">
+          <span>Organize Only <small>(no AI rename)</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="organize">
+          <span>Organize <small>(move after rename)</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="mnemonicallyBoosted">
+          <span>Mnemonically Boosted <small>(rename poor names)</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="pruneEmptyDirs">
+          <span>Prune Empty Dirs</span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="trace">
+          <span>Trace <small>(verbose status)</small></span>
+        </label>
+        <label class="option">
+          <span class="option-label">Model</span>
+          <select id="model">
+            <option value="gpt-4.1-mini" selected>gpt-4.1-mini</option>
+            <option value="gpt-4.1">gpt-4.1</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn btn-primary btn-run" id="runBtn">▶ Run Organizer</button>
+    </section>
+
+    <!-- Output -->
+    <section class="card">
+      <div class="card-title">
+        Output
+        <button class="btn btn-small btn-ghost" id="clearOutput">Clear</button>
+      </div>
+      <div class="terminal" id="terminal">
+        <div class="terminal-placeholder">Run the organizer to see output here.</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
