@@ -225,6 +225,15 @@ $("clearOutput").addEventListener("click", () => {
   terminal.innerHTML = '<div class="terminal-placeholder">Run the organizer to see output here.</div>';
 });
 
+// --- Run status ---
+const runStatus = $("runStatus");
+const runStatusText = $("runStatusText");
+
+function setRunStatus(state, text) {
+  runStatus.dataset.state = state;
+  runStatusText.textContent = text;
+}
+
 // --- Run ---
 runBtn.addEventListener("click", async () => {
   const opts = {
@@ -240,13 +249,20 @@ runBtn.addEventListener("click", async () => {
   runBtn.disabled = true;
   runBtn.textContent = "⏳ Running…";
   terminal.innerHTML = '<div class="terminal-placeholder">Running organizer…</div>';
+  const started = Date.now();
+  const elapsed = () => ((Date.now() - started) / 1000).toFixed(1) + "s";
+  setRunStatus("running", "Running… " + elapsed());
+  const timer = setInterval(() => setRunStatus("running", "Running… " + elapsed()), 1000);
   try {
     const res = await api("/api/run", "POST", opts);
     setOutput(res.output);
     refreshFiles();
+    setRunStatus("done", "Finished in " + elapsed());
   } catch (err) {
     setOutput("Error: " + err.message);
+    setRunStatus("error", "Failed after " + elapsed());
   } finally {
+    clearInterval(timer);
     runBtn.disabled = false;
     runBtn.textContent = "▶ Run Organizer";
   }

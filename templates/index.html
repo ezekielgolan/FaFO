@@ -90,7 +90,12 @@
     <section class="card">
       <div class="card-title">
         Output
-        <button class="btn btn-small btn-ghost" id="clearOutput">Clear</button>
+        <span class="title-actions">
+          <span class="run-status" id="runStatus" data-state="idle">
+            <span class="status-dot"></span><span id="runStatusText">Ready</span>
+          </span>
+          <button class="btn btn-small btn-ghost" id="clearOutput">Clear</button>
+        </span>
       </div>
       <div class="terminal" id="terminal">
         <div class="terminal-placeholder">Run the organizer to see output here.</div>
