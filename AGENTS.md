@@ -39,10 +39,10 @@ bare host it exits immediately with `ModuleNotFoundError: No module named 'opena
 dependencies are not installed. `web_app.py` + `docker-compose.base44.yml` are what make the
 project startable/previewable here.
 
-## Runtime failure that is NOT a bug
+## PyMuPDF import
 
-`fitz` prints a `FutureWarning` ("The `fitz` API is deprecated…") on every run — it comes from
-PyMuPDF and is harmless; the app still runs.
+The script imports `pymupdf as fitz`. Importing `fitz` directly raises a `FutureWarning` on every
+run with PyMuPDF >= 1.26, which leaked into the web UI's output panel.
 
 ## Secrets
 
