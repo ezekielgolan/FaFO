@@ -83,19 +83,19 @@
           </select>
         </label>
       </div>
-      <button class="btn btn-primary btn-run" id="runBtn">▶ Run Organizer</button>
+      <div class="run-row">
+        <button class="btn btn-primary btn-run" id="runBtn">▶ Run Organizer</button>
+        <span class="run-status" id="runStatus" data-state="idle">
+          <span class="status-dot"></span><span id="runStatusText">Idle</span>
+        </span>
+      </div>
     </section>
 
     <!-- Output -->
     <section class="card">
       <div class="card-title">
         Output
-        <span class="title-actions">
-          <span class="run-status" id="runStatus" data-state="idle">
-            <span class="status-dot"></span><span id="runStatusText">Ready</span>
-          </span>
-          <button class="btn btn-small btn-ghost" id="clearOutput">Clear</button>
-        </span>
+        <button class="btn btn-small btn-ghost" id="clearOutput">Clear</button>
       </div>
       <div class="terminal" id="terminal">
         <div class="terminal-placeholder">Run the organizer to see output here.</div>
