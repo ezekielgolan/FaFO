@@ -94,6 +94,17 @@ body {
 }
 .upload-icon { font-size: 2.5rem; margin-bottom: .5rem; }
 .upload-link { color: var(--accent); font-weight: 600; text-decoration: underline; }
+
+/* Off-screen but still rendered: browsers only open a directory picker (Open enabled for
+   folders) for a file input they consider laid out, not for display:none. */
+.picker-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 .upload-zone p { color: var(--text-muted); font-size: .9rem; }
 
 /* Action row */

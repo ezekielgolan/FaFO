@@ -139,15 +139,23 @@ $("browseFiles").addEventListener("click", (e) => {
   e.stopPropagation();
   fileInput.click();
 });
+// Force the input into directory mode as properties (attributes alone are not enough for
+// every browser) so its picker treats folders as selectable.
+function openFolderInput() {
+  folderInput.webkitdirectory = true;
+  folderInput.multiple = true;
+  folderInput.click();
+}
+
 // Chrome/Edge folder panel, where Open applies to a highlighted folder. Browsers without it
 // (or blocking it) fall back to the folder file input.
 async function chooseFolder() {
-  if (!window.showDirectoryPicker) return folderInput.click();
+  if (!window.showDirectoryPicker) return openFolderInput();
   let dir;
   try {
     dir = await window.showDirectoryPicker({ id: "workspace", mode: "read" });
   } catch (err) {
-    if (err.name !== "AbortError") folderInput.click();
+    if (err.name !== "AbortError") openFolderInput();
     return;
   }
   const out = [];
