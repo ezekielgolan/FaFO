@@ -33,11 +33,9 @@ def _ensure_unique(dest: Path) -> Path:
     return dest.parent / f"{stem} - {i}{ext}"
 
 
-def _dest_from_relative(rel: str, drop_root: bool) -> Optional[Path]:
+def _dest_from_relative(rel: str) -> Optional[Path]:
     """Map an uploaded relative path into the workspace, or None if unsafe."""
     parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
-    if drop_root and len(parts) > 1:
-        parts = parts[1:]
     if not parts or any(p == ".." for p in parts):
         return None
     return WORKSPACE.joinpath(*parts)
@@ -91,7 +89,7 @@ def upload():
         if not f.filename:
             continue
         rel = rel_paths[idx] if idx < len(rel_paths) else f.filename
-        dest = _dest_from_relative(rel, drop_root=bool(rel_paths))
+        dest = _dest_from_relative(rel)
         if dest is None:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)

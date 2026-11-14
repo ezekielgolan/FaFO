@@ -18,9 +18,11 @@ The compose service has a healthcheck against `/api/files`; `docker compose ps` 
 
 ## Uploads
 
-`/api/upload` accepts plain files, or a folder selection: when `static/app.js` posts a `paths` JSON
-field (from `webkitRelativePath`), the chosen folder's own name is stripped and its contents are
-written into the workspace with their subfolders preserved (`POST /api/upload` with `paths=`).
+`/api/upload` accepts a `paths` JSON field alongside `files`: paths are already relative to the
+chosen folder (the browser strips the folder's own name) and are written into the workspace with
+subfolders preserved; entries with `..` are rejected. Plain uploads without `paths` fall back to the
+uploaded filename. Folders can be picked (folder input, `webkitRelativePath`) or dropped directly
+(`webkitGetAsEntry` walk), so no OS "Open" button is involved for the drop path.
 
 ## How the organizer is invoked
 

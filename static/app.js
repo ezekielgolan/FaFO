@@ -63,16 +63,62 @@ async function refreshFiles() {
 }
 
 // --- Upload ---
-async function uploadFiles(files, keepPaths = false) {
+// Uploads [{ file, path }] pairs, where path is relative to the chosen folder.
+async function uploadEntries(entries) {
+  if (!entries.length) return;
   const fd = new FormData();
-  const paths = [];
-  for (const f of files) {
-    fd.append("files", f);
-    if (keepPaths) paths.push(f.webkitRelativePath || f.name);
-  }
-  if (keepPaths && paths.length) fd.append("paths", JSON.stringify(paths));
+  for (const e of entries) fd.append("files", e.file);
+  fd.append("paths", JSON.stringify(entries.map((e) => e.path)));
   await api("/api/upload", "POST", fd);
   refreshFiles();
+}
+
+function uploadFiles(files) {
+  uploadEntries([...files].map((f) => ({ file: f, path: f.name })));
+}
+
+// A picked folder's own name is dropped so its contents become the workspace.
+function stripRoot(rel) {
+  const parts = rel.split("/").filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join("/") : parts[0] || rel;
+}
+
+function readEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const next = () =>
+      reader.readEntries((batch) => {
+        if (!batch.length) return resolve(all);
+        all.push(...batch);
+        next();
+      }, reject);
+    next();
+  });
+}
+
+async function walkDir(dirEntry, prefix, out) {
+  for (const child of await readEntries(dirEntry.createReader())) {
+    if (child.isFile) {
+      const file = await new Promise((res, rej) => child.file(res, rej));
+      out.push({ file, path: prefix + file.name });
+    } else {
+      await walkDir(child, prefix + child.name + "/", out);
+    }
+  }
+}
+
+// Folder entries from a drop, or null when only loose files were dropped.
+async function droppedFolder(dt) {
+  const out = [];
+  let sawFolder = false;
+  for (const item of dt.items || []) {
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+    if (entry && entry.isDirectory) {
+      sawFolder = true;
+      await walkDir(entry, "", out);
+    }
+  }
+  return sawFolder ? out : null;
 }
 
 const folderInput = $("folderInput");
@@ -88,7 +134,9 @@ $("browseFolder").addEventListener("click", (e) => {
   folderInput.click();
 });
 folderInput.addEventListener("change", (e) => {
-  if (e.target.files.length) uploadFiles(e.target.files, true);
+  uploadEntries(
+    [...e.target.files].map((f) => ({ file: f, path: stripRoot(f.webkitRelativePath || f.name) }))
+  );
   e.target.value = "";
 });
 
@@ -97,9 +145,11 @@ dropZone.addEventListener("dragover", (e) => {
   dropZone.classList.add("dragover");
 });
 dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
-dropZone.addEventListener("drop", (e) => {
+dropZone.addEventListener("drop", async (e) => {
   e.preventDefault();
   dropZone.classList.remove("dragover");
+  const folder = await droppedFolder(e.dataTransfer);
+  if (folder) return uploadEntries(folder);
   uploadFiles(e.dataTransfer.files);
 });
 
