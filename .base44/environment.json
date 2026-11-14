@@ -1,0 +1,12 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "OpenAI API key for AI-powered file classification (gpt-4.1-mini). Get it from https://platform.openai.com/api-keys. Without it, the 'Organize Only' mode still works but AI renaming is disabled.",
+      "requiredAtBoot": false
+    }
+  ]
+}
