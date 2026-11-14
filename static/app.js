@@ -107,6 +107,16 @@ async function walkDir(dirEntry, prefix, out) {
   }
 }
 
+async function readHandle(handle, prefix, out) {
+  for await (const [name, child] of handle.entries()) {
+    if (child.kind === "file") {
+      out.push({ file: await child.getFile(), path: prefix + name });
+    } else {
+      await readHandle(child, prefix + name + "/", out);
+    }
+  }
+}
+
 // Folder entries from a drop, or null when only loose files were dropped.
 async function droppedFolder(dt) {
   const out = [];
@@ -129,9 +139,26 @@ $("browseFiles").addEventListener("click", (e) => {
   e.stopPropagation();
   fileInput.click();
 });
+// Chrome/Edge folder panel, where Open applies to a highlighted folder. Browsers without it
+// (or blocking it) fall back to the folder file input.
+async function chooseFolder() {
+  if (!window.showDirectoryPicker) return folderInput.click();
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: "workspace", mode: "read" });
+  } catch (err) {
+    if (err.name !== "AbortError") folderInput.click();
+    return;
+  }
+  const out = [];
+  await readHandle(dir, "", out);
+  if (!out.length) return alert("That folder has no files in it.");
+  uploadEntries(out);
+}
+
 $("browseFolder").addEventListener("click", (e) => {
   e.stopPropagation();
-  folderInput.click();
+  chooseFolder();
 });
 folderInput.addEventListener("change", (e) => {
   uploadEntries(
