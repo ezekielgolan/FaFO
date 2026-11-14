@@ -1,0 +1,18 @@
+# Development image for the Base44 sandbox.
+# Only OS packages and Python dependencies are installed here; the repo itself is
+# bind-mounted at /app by docker-compose.base44.yml so source edits stay live.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# ffmpeg is required by the organizer for video frame extraction.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY web_requirements.txt /tmp/web_requirements.txt
+RUN pip install -r /tmp/web_requirements.txt
+
+WORKDIR /app
