@@ -24,8 +24,9 @@
       <div class="card-title">Workspace</div>
       <div class="upload-zone" id="dropZone">
         <div class="upload-icon">📁</div>
-        <p>Drag &amp; drop files here, or <span class="upload-link">browse</span></p>
+        <p>Drag &amp; drop files here, or <span class="upload-link" id="browseFiles">browse files</span> · <span class="upload-link" id="browseFolder">choose a folder</span></p>
         <input type="file" id="fileInput" multiple hidden>
+        <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
       </div>
       <div class="action-row">
         <button class="btn btn-secondary" id="sampleBtn">Load Sample Files</button>

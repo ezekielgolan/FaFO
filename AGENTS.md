@@ -16,6 +16,12 @@ The Flask app runs with `debug=True` for live reload of Python changes. Template
 
 The compose service has a healthcheck against `/api/files`; `docker compose ps` should show `(healthy)`.
 
+## Uploads
+
+`/api/upload` accepts plain files, or a folder selection: when `static/app.js` posts a `paths` JSON
+field (from `webkitRelativePath`), the chosen folder's own name is stripped and its contents are
+written into the workspace with their subfolders preserved (`POST /api/upload` with `paths=`).
+
 ## How the organizer is invoked
 
 The web UI runs `"files and folders organizer.py"` as a **subprocess** with:

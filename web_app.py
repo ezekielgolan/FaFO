@@ -2,12 +2,14 @@
 """Web UI wrapper for the files and folders organizer CLI tool."""
 
 import io
+import json
 import os
 import struct
 import subprocess
 import sys
 import zlib
 from pathlib import Path
+from typing import Optional
 
 from flask import Flask, request, jsonify, render_template
 
@@ -29,6 +31,16 @@ def _ensure_unique(dest: Path) -> Path:
     while (dest.parent / f"{stem} - {i}{ext}").exists():
         i += 1
     return dest.parent / f"{stem} - {i}{ext}"
+
+
+def _dest_from_relative(rel: str, drop_root: bool) -> Optional[Path]:
+    """Map an uploaded relative path into the workspace, or None if unsafe."""
+    parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
+    if drop_root and len(parts) > 1:
+        parts = parts[1:]
+    if not parts or any(p == ".." for p in parts):
+        return None
+    return WORKSPACE.joinpath(*parts)
 
 
 def _make_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
@@ -72,12 +84,18 @@ def list_files():
 @app.route("/api/upload", methods=["POST"])
 def upload():
     uploaded = request.files.getlist("files")
+    raw_paths = request.form.get("paths")
+    rel_paths = json.loads(raw_paths) if raw_paths else []
     count = 0
-    for f in uploaded:
+    for idx, f in enumerate(uploaded):
         if not f.filename:
             continue
-        dest = _ensure_unique(WORKSPACE / f.filename)
-        f.save(dest)
+        rel = rel_paths[idx] if idx < len(rel_paths) else f.filename
+        dest = _dest_from_relative(rel, drop_root=bool(rel_paths))
+        if dest is None:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        f.save(_ensure_unique(dest))
         count += 1
     return jsonify({"uploaded": count})
 

@@ -63,15 +63,34 @@ async function refreshFiles() {
 }
 
 // --- Upload ---
-async function uploadFiles(files) {
+async function uploadFiles(files, keepPaths = false) {
   const fd = new FormData();
-  for (const f of files) fd.append("files", f);
+  const paths = [];
+  for (const f of files) {
+    fd.append("files", f);
+    if (keepPaths) paths.push(f.webkitRelativePath || f.name);
+  }
+  if (keepPaths && paths.length) fd.append("paths", JSON.stringify(paths));
   await api("/api/upload", "POST", fd);
   refreshFiles();
 }
 
+const folderInput = $("folderInput");
+
 dropZone.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", (e) => uploadFiles(e.target.files));
+$("browseFiles").addEventListener("click", (e) => {
+  e.stopPropagation();
+  fileInput.click();
+});
+$("browseFolder").addEventListener("click", (e) => {
+  e.stopPropagation();
+  folderInput.click();
+});
+folderInput.addEventListener("change", (e) => {
+  if (e.target.files.length) uploadFiles(e.target.files, true);
+  e.target.value = "";
+});
 
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
