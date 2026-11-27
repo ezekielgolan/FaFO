@@ -51,7 +51,7 @@ def check_dependencies() -> None:
         raise SystemExit("ffmpeg is not installed. Install it with: brew install ffmpeg")
 
     try:
-        import fitz  # PyMuPDF
+        import pymupdf as fitz  # PyMuPDF
     except Exception:
         raise SystemExit(
             "PyMuPDF is not installed. Install it with: "
@@ -286,7 +286,10 @@ def year_month_from_date(date_str: str) -> tuple[str, str]:
 
 def progress_bar(scanned: int, total: int, width: int = 50) -> str:
     if total <= 0:
-        return "[" + ("?" * width) + "]"
+        label = "no files"
+        pad = max(0, width - len(label))
+        left = pad // 2
+        return "[" + ("-" * left) + label + ("-" * (pad - left)) + "]"
     bar = ["-"] * width
     pct_text = f"{(scanned / total) * 100:0.1f}%"
     idx = int((scanned / total) * max(1, width - len(pct_text)))
@@ -323,7 +326,7 @@ def print_phase_progress(
     elapsed = max(1.0, time.time() - started)
     rate = current / elapsed if current > 0 else 0.0
     remaining = max(0, total - current)
-    eta = format_eta(remaining / rate) if rate > 0 else "??m??s"
+    eta = format_eta(remaining / rate) if rate > 0 else "--"
     bar = progress_bar(current, total)
     fields = [
         f"{current_label}={current}",
@@ -614,7 +617,7 @@ def classify_pdf_document(
 def extract_pdf_first_page_image(path: Path) -> Optional[Tuple[bytes, str]]:
     global MISSING_PYMUPDF_WARNED
     try:
-        import fitz  # PyMuPDF
+        import pymupdf as fitz  # PyMuPDF
     except Exception:
         if not MISSING_PYMUPDF_WARNED:
             print("Warning: PyMuPDF not installed. PDF OCR will be skipped.", file=sys.stderr)
@@ -1039,6 +1042,9 @@ def main():
         scanned = 0
         skipped = 0
         total = sum(1 for _ in iter_files(root, args.recursive))
+        if total == 0:
+            hint = "" if args.recursive else " (top level only; enable Recursive to include subfolders)"
+            print(f"No supported files found in {root}{hint}")
         emit_status(
             reporter,
             f"Starting rename scan in {root} with {total} supported files at {format_clock()}",
